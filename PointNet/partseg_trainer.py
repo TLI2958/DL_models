@@ -8,7 +8,7 @@ import argparse
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from detectron2.utils.events import get_event_storage, EventStorage, EventWriter, CommonMetricPrinter, JSONWriter, NextListHook
+from detectron2.utils.events import get_event_storage, EventStorage, EventWriter, CommonMetricPrinter, JSONWriter
 from detectron2.utils.file_io import PathManager
 from detectron2.engine.train_loop import SimpleTrainer
 import detectron2.utils.comm as comm
@@ -93,6 +93,7 @@ class PartSegTrainer(SimpleTrainer):
     def __init__(self, model, args, **kwargs):
         self.args = args
         self.model = model
+        self.curr_idx = 0
         super().__init__(model, data_loader = self.build_train_loader(args), 
                          optimizer = self.build_optimizers(), **kwargs)
         self.val_data_loader = self.build_val_loader(args)
@@ -106,7 +107,6 @@ class PartSegTrainer(SimpleTrainer):
             model=self.model, save_dir=args.output_dir, 
             optimizer=self.optimizer, scheduler=self.lr_scheduler
         )
-
         self.register_hooks(self.build_hooks(self.args))
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -243,11 +243,13 @@ class PartSegTrainer(SimpleTrainer):
         cl_args = args.train_collator 
         training_file_list = os.path.join(args.hdf5_data_dir, 'train_hdf5_file_list.txt')
         train_file_list = getDataFiles(training_file_list)
-        train_dataset = load_data_each(args.hdf5_data_dir, train_file_list, dataset_type=args.dataset_type)
+        if self.curr_idx >= len(train_file_list):
+            self.curr_idx = 0
+        train_dataset = load_data_each(args.hdf5_data_dir, train_file_list, self.curr_idx, dataset_type=args.dataset_type)
         return torch.utils.data.DataLoader(train_dataset, 
                                         batch_size = args.batch, 
                                         # collate_fn = partseg_train_collator(2048, 
-                                        #                                     rotation_prob = cl_args.rotation_prob,
+                                        #                   `                  rotation_prob = cl_args.rotation_prob,
                                         #                                     jitter_prob = cl_args.jitter_prob,)
                                           )
     
@@ -295,6 +297,7 @@ class PartSegTrainer(SimpleTrainer):
         #                               checkpointer=self.checkpointer, val_metric = 'acc'))
         hooks.append(PeriodicWriter(self.build_writers(), period= period_args.write_period))
         hooks.append(NextListHook(period = period_args.switch_period))
+        hooks.append(tqdmHook(curr_iter = self.start_iter, max_iter = self.max_iter))
         
         return hooks
 

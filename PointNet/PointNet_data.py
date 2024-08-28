@@ -214,12 +214,12 @@ def load_data(hdf5_data_dir, train_file_list, dataset_type = 'iter'):
     return ds
 
 
-def load_data_each(hdf5_data_dir, train_file_list, dataset_type = 'iter'):
-    idx = np.random.randint(len(train_file_list))
+def load_data_each(hdf5_data_dir, train_file_list, idx, dataset_type = 'iter'):
     cur_train_filename = os.path.join(hdf5_data_dir, train_file_list[idx])
     cur_data, cur_labels, cur_seg = loadDataFile_with_seg(cur_train_filename)
     cur_data, cur_labels, order = shuffle_data(cur_data, np.squeeze(cur_labels))
     cur_seg = cur_seg[order, ...]
+    # condition unnecessary
     if dataset_type == 'iter':
         ds = partseg_dataset_iter(data = cur_data, label = cur_labels, seg = cur_seg)
     else:

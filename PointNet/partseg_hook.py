@@ -10,6 +10,7 @@ import tempfile
 import time
 import warnings
 from collections import Counter
+import tqdm
 import torch
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim import Optimizer
@@ -32,6 +33,7 @@ from detectron2.engine.train_loop import HookBase
 __all__ = [
     "CallbackHook",
     "NextListHook",
+    "tqdmHook",
     "IterationTimer",
     "PeriodicWriter",
     "PeriodicCheckpointer",
@@ -43,7 +45,7 @@ __all__ = [
     "BNMomentum",
 ]
 
-
+# todo: cook a `tqdm` Hook
 class CallbackHook(HookBase):
     """
     Create a hook using callback functions provided by the user.
@@ -86,10 +88,26 @@ class NextListHook(HookBase):
         current_iter = self.trainer.iter
         if not current_iter % self.list_period:
             self.trainer.dataloader = self.trainer.build_train_loader(self.trainer.args)
-            self.trainer._data_loader_iter = iter(self.trainer.dataloader)
-            print('switch to another list...')
+            self.trainer.curr_idx += 1
+            # print(self.trainer.curr_idx)
+            # print('switch to another list...')
 
+class tqdmHook(HookBase):
+    def __init__(self, curr_iter, max_iter):
+        self.curr_iter = curr_iter
+        self.max_iter = max_iter
+        self.progress_bar = tqdm.tqdm(total = self.max_iter, initial = self.curr_iter)
 
+    def before_train(self):
+        self.progress_bar.clear()
+        
+    def after_step(self):
+        time.sleep(0.1)
+        self.progress_bar.update(1)
+
+    def after_train(self):
+        self.progress_bar.close()
+        
 class IterationTimer(HookBase):
     """
     Track the time spent for each iteration (each run_step call in the trainer).
@@ -418,7 +436,7 @@ class EvalHook(HookBase):
     def _do_eval(self):
         results = self._func()
         self.trainer.model.train()  # Ensure model returns to training mode @ChatGPT
-        print(results)
+        # print(results)
         if results:
             flattened_results = flatten_results_dict(results)
             log = f'\n{self.trainer.iter + 1}\n'
@@ -434,7 +452,7 @@ class EvalHook(HookBase):
 
     def after_step(self):
         next_iter = self.trainer.iter + 1
-        print(next_iter)
+        # print(next_iter)
         if self._period > 0 and next_iter % self._period == 0:
             # do the last eval in after_train
             if next_iter != self.trainer.max_iter:
