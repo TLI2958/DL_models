@@ -185,11 +185,12 @@ class partseg_dataset_iter(torch.utils.data.IterableDataset):
         return len(self.label)
     
     def __iter__(self):
-        while True:
-            for idx in range(self.label.shape[0]):
-                yield  {'data': self.data[idx], 
-                    'labels': self.label[idx], 
-                    'segments': self.seg[idx]}
+        indices = np.arange(self.label.shape[0])
+        np.random.shuffle(indices)  # Shuffle indices for random access
+        for idx in indices:
+            yield  {'data': self.data[idx], 
+                'labels': self.label[idx], 
+                'segments': self.seg[idx]}
     
     def __add__(self, other: "IterableDataset") -> "IterableDataset":
         return torch.utils.data.ChainDataset([self, other])
@@ -200,15 +201,15 @@ def load_data(hdf5_data_dir, train_file_list, dataset_type = 'iter'):
     for i in range(len(train_file_list)):
         cur_train_filename = os.path.join(hdf5_data_dir, train_file_list[i])
         cur_data, cur_labels, cur_seg = loadDataFile_with_seg(cur_train_filename)
-        cur_data, cur_labels, order = shuffle_data(cur_data, np.squeeze(cur_labels))
-        cur_seg = cur_seg[order, ...]
         if dataset_type == 'iter':
             ds_ = partseg_dataset_iter(data = cur_data, label = cur_labels, seg = cur_seg)
         else:
+            cur_data, cur_labels, order = shuffle_data(cur_data, np.squeeze(cur_labels))
+            cur_seg = cur_seg[order, ...]
             ds_ = partseg_dataset(data = cur_data, label = cur_labels, seg = cur_seg)
         # lens += [ds_.__len__()]
         if ds is not None:
-            ds.__add__(ds_)          
+            ds = ds.__add__(ds_)          
         else:
             ds = ds_
     return ds
@@ -217,12 +218,12 @@ def load_data(hdf5_data_dir, train_file_list, dataset_type = 'iter'):
 def load_data_each(hdf5_data_dir, train_file_list, idx, dataset_type = 'iter'):
     cur_train_filename = os.path.join(hdf5_data_dir, train_file_list[idx])
     cur_data, cur_labels, cur_seg = loadDataFile_with_seg(cur_train_filename)
-    cur_data, cur_labels, order = shuffle_data(cur_data, np.squeeze(cur_labels))
-    cur_seg = cur_seg[order, ...]
-    # condition unnecessary
+
     if dataset_type == 'iter':
-        ds = partseg_dataset_iter(data = cur_data, label = cur_labels, seg = cur_seg)
+        ds = partseg_dataset_iter(data = cur_data, label = np.squeeze(cur_labels), seg = cur_seg)
     else:
+        cur_data, cur_labels, order = shuffle_data(cur_data, np.squeeze(cur_labels))
+        cur_seg = cur_seg[order, ...]
         ds = partseg_dataset(data = cur_data, label = cur_labels, seg = cur_seg)
     return ds
 

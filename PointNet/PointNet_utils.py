@@ -39,8 +39,10 @@ class transform(nn.Module):
                                 nn.Linear(512, 256),
                                 nn.BatchNorm1d(256),
                                 nn.ReLU(),
-                                nn.Linear(256, np.prod(out), bias =False))
-        self.bias = nn.Parameter(torch.eye(out[0], out[1]).view(-1),)
+                                nn.Linear(256, np.prod(out), bias = False))
+        self.bias = nn.Parameter(torch.zeros(out[0], out[1]).view(-1),)
+        with torch.no_grad():
+            self.bias += torch.eye(out[0], out[1]).view(-1)
         self.bias.to(device)
         
     def forward(self, x):
@@ -81,11 +83,11 @@ def get_partseg_loss(l_pred, s_pred, l_target, s_target, feat = None, reg_weight
     else:
         reg_loss = torch.zeros(1).to(device)
     total_loss = (1 - weight) * cls_loss + weight * seg_loss + reg_weight * reg_loss
-    with open('all_losses.pkl', 'ab') as f:
-        pickle.dump({loss_keys[0]: cls_loss.cpu().item(), 
-                     loss_keys[1]: seg_loss.cpu().item(),
-                     loss_keys[2]: 
-                     reg_loss.cpu().item(), loss_keys[3]: total_loss.cpu().item()}, f)
+    # with open('all_losses.pkl', 'ab') as f:
+    #     pickle.dump({loss_keys[0]: cls_loss.cpu().item(), 
+    #                  loss_keys[1]: seg_loss.cpu().item(),
+    #                  loss_keys[2]: 
+    #                  reg_loss.cpu().item(), loss_keys[3]: total_loss.cpu().item()}, f)
     return total_loss, cls_loss, seg_loss
     
 

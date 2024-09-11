@@ -121,6 +121,14 @@ class PartSegTrainer(SimpleTrainer):
             curr_iter = ''.join(re.findall(r'[0-9]', curr_iter))
             self.iter = int(curr_iter) if len(curr_iter) > 0 else self.max_iter
             self.start_iter = self.iter + 1
+            
+        # lr_args = self.args.lr_scheduler
+        bn_args = self.args.bn_momentum
+        # for param_group in self.after_stepoptimizer.param_groups:
+        #     param_group['lr'] = max(lr_args.base_learning_rate *(bn_args.bn_decay_rate **(self.start_iter//lr_args.decay_step)), 
+        #                             lr_args.clip)
+        bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
+                    bn_decay_step=bn_args.bn_decay_step, global_step = self.start_iter, model = self.model)
         # else:
         #     self.model.apply(initialize_weights)
 
@@ -152,7 +160,7 @@ class PartSegTrainer(SimpleTrainer):
         loss, cls_loss, seg_loss = get_partseg_loss(
             l_pred=labels_pred, s_pred=seg_pred,
             l_target=label, s_target=seg, feat=end_points,
-            reg_weight=0.001, weight=.999
+            reg_weight=0.001, weight= 1
         )
 
         metrics = {
@@ -163,7 +171,7 @@ class PartSegTrainer(SimpleTrainer):
             "total_seg_acc": seg_pred.argmax(1).eq(seg.to(torch.int64)).float().mean(dim=1).mean().cpu().item(),
         }
 
-        labels_pred_, seg_pred_ = labels_pred.argmax(1), seg_pred.argmax(1)
+        labels_pred_, seg_pred_ = torch.argmax(labels_pred, 1), seg_pred.argmax(1)
         per_instance_seg_acc = seg_pred_.eq(seg.to(torch.int64)).float().mean(dim=1)
         total_seen_per_cat = np.bincount(label.cpu(), minlength=self.num_classes)
         total_label_acc_per_cat = np.zeros((self.num_classes)).astype(np.float32)
@@ -203,29 +211,31 @@ class PartSegTrainer(SimpleTrainer):
         """
         assert self.model.training, "[PartSegTrainer] model was changed to eval mode!"
         start = time.perf_counter()
-        batch = next(self._data_loader_iter)
+        try:
+            # Fetch the next batch using the iterator
+            batch = next(self._data_loader_iter)
+        except StopIteration:
+            # If the iterator is exhausted, reset it and fetch the next batch
+            self._data_loader_iter_obj = iter(self.data_loader)  # Reset the iterator
+            batch = next(self._data_loader_iter)
+            
+        # batch = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
-        # print(self.iter)
 
-        if self.zero_grad_before_forward:
-            self.optimizer.zero_grad()
         data, label, seg = batch.values()
+        # print(label, seg)
         data, label, seg = data.to(self.device), label.to(self.device), seg.to(self.device)
         labels_pred, seg_pred, end_points = self.model(data, label)
         losses, cls_loss, seg_loss = get_partseg_loss(l_pred = labels_pred, s_pred = seg_pred,
                                                     l_target = label, s_target = seg, feat = end_points, 
-                                                    reg_weight=0.001, weight = .999)
+                                                    reg_weight=0.001, weight = 1)
         loss_keys = ['cls loss', 'seg loss', 'total loss']
         loss_dict = dict(zip(loss_keys, [cls_loss.detach().cpu().item(), 
                                         seg_loss.detach().cpu().item(), 
                                          losses.detach().cpu().item()]))
 
-        if not self.zero_grad_before_forward:
-            """
-            If you need to accumulate gradients or do something similar, you can
-            wrap the optimizer with your custom `zero_grad()` method.
-            """
-            self.optimizer.zero_grad()
+
+        self.optimizer.zero_grad()
         losses.backward()
 
         self.after_backward()
@@ -237,8 +247,17 @@ class PartSegTrainer(SimpleTrainer):
         suboptimal as explained in https://arxiv.org/abs/2006.15704 Sec 3.2.4
         """
         self.optimizer.step()
-        self.lr_scheduler.step()
+        # self.lr_scheduler.step(epoch = self.iter)
 
+        bn_args = self.args.bn_momentum
+        lr_args = self.args.lr_scheduler
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = max(lr_args.base_learning_rate *(bn_args.bn_decay_rate **(self.iter//lr_args.decay_step)), 
+                                    lr_args.clip)
+        bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
+                    bn_decay_step=bn_args.bn_decay_step, global_step = self.iter, model = self.model)
+
+    
     def build_train_loader(self, args):
         cl_args = args.train_collator 
         training_file_list = os.path.join(args.hdf5_data_dir, 'train_hdf5_file_list.txt')
@@ -248,9 +267,9 @@ class PartSegTrainer(SimpleTrainer):
         train_dataset = load_data_each(args.hdf5_data_dir, train_file_list, self.curr_idx, dataset_type=args.dataset_type)
         return torch.utils.data.DataLoader(train_dataset, 
                                         batch_size = args.batch, 
-                                        # collate_fn = partseg_train_collator(2048, 
-                                        #                   `                  rotation_prob = cl_args.rotation_prob,
-                                        #                                     jitter_prob = cl_args.jitter_prob,)
+                                        collate_fn = partseg_train_collator(2048, 
+                                                                            rotation_prob = cl_args.rotation_prob,
+                                                                            jitter_prob = cl_args.jitter_prob,)
                                           )
     
     def build_val_loader(self, args):
@@ -260,7 +279,7 @@ class PartSegTrainer(SimpleTrainer):
         val_dataset = load_data(args.hdf5_data_dir, val_file_list, dataset_type = 'dataset')
         return torch.utils.data.DataLoader(val_dataset, 
                                         batch_size = args.batch, 
-                                        # collate_fn = partseg_train_collator(2048, 
+                                        collate_fn = partseg_train_collator(2048,)
                                         #                                     rotation_prob = cl_args.rotation_prob,
                                         #                                     jitter_prob = cl_args.jitter_prob,)
                                           )    
@@ -282,14 +301,14 @@ class PartSegTrainer(SimpleTrainer):
         period_args = args.period
         hooks = [
             PeriodicCheckpointer(self.checkpointer, period= period_args.eval_period), 
-            LRSchedulerHook(self.optimizer, self.lr_scheduler),
-            BNMomentumHook(
-                self.model,
-                bn_init_decay=bn_args.bn_init_decay, 
-                bn_decay_rate=bn_args.bn_decay_rate, 
-                decay_step=bn_args.bn_decay_step, 
-                clip=bn_args.bn_decay_clip
-            ),
+            # LRSchedulerHook(self.optimizer, self.lr_scheduler),
+            # BNMomentumHook(
+            #     self.model,
+            #     bn_init_decay=bn_args.bn_init_decay, 
+            #     bn_decay_rate=bn_args.bn_decay_rate, 
+            #     decay_step=bn_args.bn_decay_step, 
+            #     clip=bn_args.bn_decay_clip
+            # ),
         ]
 
         hooks.append(EvalHook(eval_period= period_args.eval_period, eval_function=eval_fn, args = args)) # Do evaluation after checkpointer for debug
@@ -384,16 +403,7 @@ class PartSegTrainer(SimpleTrainer):
             metrics_dict = {
                 k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()
             }
-            # total_losses_reduced = sum(metrics_dict.values())
-            # if not np.isfinite(total_losses_reduced):
-            #     raise FloatingPointError(
-            #         f"Loss became infinite or NaN at iteration={cur_iter}!\n"
-            #         f"loss_dict = {metrics_dict}"
-            #     )
 
-            # storage.put_scalar(
-            #     "{}total_loss".format(prefix), total_losses_reduced, cur_iter=cur_iter
-            # )
             if len(metrics_dict) > 1:
                 storage.put_scalars(cur_iter=cur_iter, **metrics_dict)
     

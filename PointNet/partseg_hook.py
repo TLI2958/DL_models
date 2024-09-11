@@ -86,8 +86,9 @@ class NextListHook(HookBase):
     
     def after_step(self):
         current_iter = self.trainer.iter
-        if not current_iter % self.list_period:
+        if current_iter % self.list_period == 0:
             self.trainer.dataloader = self.trainer.build_train_loader(self.trainer.args)
+            self.trainer._data_loader_iter_obj = iter(self.trainer.dataloader)
             self.trainer.curr_idx += 1
             # print(self.trainer.curr_idx)
             # print('switch to another list...')
@@ -396,8 +397,8 @@ class BNMomentumHook(HookBase):
     def __init__(self, model, bn_init_decay=0.1, bn_decay_rate=0.5, decay_step=40, clip=0.99):
         self.bn_momentum = BNMomentum(model, bn_init_decay, bn_decay_rate, decay_step, clip)
     
-    def before_train(self):
-        self.bn_momentum.update(0)
+    # def before_train(self):
+    #     self.bn_momentum.update(0)
 
     def after_step(self):
         current_iter = self.trainer.iter
@@ -457,6 +458,8 @@ class EvalHook(HookBase):
             # do the last eval in after_train
             if next_iter != self.trainer.max_iter:
                 self._do_eval()
+        self.trainer.model.train()
+                
 
     def after_train(self):
         # This condition is to prevent the eval from running after a failed training
@@ -495,17 +498,17 @@ class EMAclip(LRScheduler):
         return [max(group["lr"] * self.gamma, self.clip) for group in self.optimizer.param_groups]
 
     def _get_closed_form_lr(self):
-        return [max(base_lr * self.gamma**(self.last_epoch//self.decay_step), self.clip) for base_lr in self.base_lrs]
+        return [max(base_lr * math.pow(self.gamma, self.last_epoch//self.decay_step), self.clip) for base_lr in self.base_lrs]
     
-    def step(self, epoch=None):
-        # Overrides the step method to update learning rate based on iterations (steps)
+    def step(self, epoch =None):
         if epoch is None:
             self.last_epoch += 1
         else:
-            self.last_epoch = epoch
+            self.last_epoch =  epoch
         self._last_lr = self.get_lr()
         for param_group, lr in zip(self.optimizer.param_groups, self._last_lr):
             param_group['lr'] = lr
+            
         if self.verbose:
             print(f'Iteration {self.last_epoch}: setting learning rate to {self._last_lr}.')
 
@@ -519,7 +522,7 @@ class BNMomentum:
 
     @torch.no_grad()
     def update(self, current_iter):
-        new_momentum = self.bn_init_decay * (self.bn_decay_rate ** (current_iter // self.decay_step))
+        new_momentum = self.bn_init_decay * math.pow(self.bn_decay_rate, current_iter // self.decay_step)
         new_momentum = max(new_momentum, 1 - self.clip)
         for module in self.model.modules():
             if isinstance(module, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)):
