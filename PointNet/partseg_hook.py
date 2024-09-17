@@ -397,8 +397,8 @@ class BNMomentumHook(HookBase):
     def __init__(self, model, bn_init_decay=0.1, bn_decay_rate=0.5, decay_step=40, clip=0.99):
         self.bn_momentum = BNMomentum(model, bn_init_decay, bn_decay_rate, decay_step, clip)
     
-    # def before_train(self):
-    #     self.bn_momentum.update(0)
+    def before_train(self):
+        self.bn_momentum.update(0)
 
     def after_step(self):
         current_iter = self.trainer.iter

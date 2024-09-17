@@ -123,12 +123,12 @@ class PartSegTrainer(SimpleTrainer):
             self.start_iter = self.iter + 1
             
         # lr_args = self.args.lr_scheduler
-        bn_args = self.args.bn_momentum
+        # bn_args = self.args.bn_momentum
         # for param_group in self.after_stepoptimizer.param_groups:
         #     param_group['lr'] = max(lr_args.base_learning_rate *(bn_args.bn_decay_rate **(self.start_iter//lr_args.decay_step)), 
         #                             lr_args.clip)
-        bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
-                    bn_decay_step=bn_args.bn_decay_step, global_step = self.start_iter, model = self.model)
+        # bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
+        #             bn_decay_step=bn_args.bn_decay_step, global_step = self.start_iter, model = self.model)
         # else:
         #     self.model.apply(initialize_weights)
 
@@ -247,15 +247,15 @@ class PartSegTrainer(SimpleTrainer):
         suboptimal as explained in https://arxiv.org/abs/2006.15704 Sec 3.2.4
         """
         self.optimizer.step()
-        # self.lr_scheduler.step(epoch = self.iter)
+        self.lr_scheduler.step(epoch = self.iter)
 
-        bn_args = self.args.bn_momentum
-        lr_args = self.args.lr_scheduler
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = max(lr_args.base_learning_rate *(bn_args.bn_decay_rate **(self.iter//lr_args.decay_step)), 
-                                    lr_args.clip)
-        bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
-                    bn_decay_step=bn_args.bn_decay_step, global_step = self.iter, model = self.model)
+        # bn_args = self.args.bn_momentum
+        # lr_args = self.args.lr_scheduler
+        # for param_group in self.optimizer.param_groups:
+        #     param_group['lr'] = max(lr_args.base_learning_rate *(bn_args.bn_decay_rate **(self.iter//lr_args.decay_step)), 
+        #                             lr_args.clip)
+        # bn_momentum(bn_init_decay=bn_args.bn_init_decay, bn_decay_rate=bn_args.bn_decay_rate,
+        #             bn_decay_step=bn_args.bn_decay_step, global_step = self.iter, model = self.model)
 
     
     def build_train_loader(self, args):
@@ -301,14 +301,14 @@ class PartSegTrainer(SimpleTrainer):
         period_args = args.period
         hooks = [
             PeriodicCheckpointer(self.checkpointer, period= period_args.eval_period), 
-            # LRSchedulerHook(self.optimizer, self.lr_scheduler),
-            # BNMomentumHook(
-            #     self.model,
-            #     bn_init_decay=bn_args.bn_init_decay, 
-            #     bn_decay_rate=bn_args.bn_decay_rate, 
-            #     decay_step=bn_args.bn_decay_step, 
-            #     clip=bn_args.bn_decay_clip
-            # ),
+            LRSchedulerHook(self.optimizer, self.lr_scheduler),
+            BNMomentumHook(
+                self.model,
+                bn_init_decay=bn_args.bn_init_decay, 
+                bn_decay_rate=bn_args.bn_decay_rate, 
+                decay_step=bn_args.bn_decay_step, 
+                clip=bn_args.bn_decay_clip
+            ),
         ]
 
         hooks.append(EvalHook(eval_period= period_args.eval_period, eval_function=eval_fn, args = args)) # Do evaluation after checkpointer for debug
